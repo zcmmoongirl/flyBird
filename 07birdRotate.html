@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style type="text/css">
+        canvas {
+            border: 1px solid #f00;
+        }
+    </style>
+</head>
+<body>
+<canvas id="cvs" width="500" height="500"></canvas>
+
+</body>
+</html>
+<script type="text/javascript" src="02loadImage.js"></script>
+<!--天空-->
+<script type="text/javascript">
+    /**
+     * funcction { sky } 绘制背景
+     * @param ctx  绘制的环境
+     * @param img  背景图像
+     * @param speed  背景的速度
+     * @constructor
+     */
+    function Sky(ctx,img,speed) {
+        this.ctx = ctx;
+        this.img = img;
+        this.speed = speed || 2;
+        this.width = this.img.width;
+        this.height = this.img.height;
+
+        //创建一个实例，Sky的len加加
+        Sky.len++;//需要一个变量来记录，而这个变量贯穿全局.不同的实例共享的一个变量,
+        // 把这个变量加到构造函数的静态属性
+
+        //this.x = 0;//绘制的坐标点,第0张x轴为0，第一张x轴为画布的宽，
+        //根据实例的数量动动态计算x轴坐标
+        this.x = this.width*(Sky.len-1);
+        this.y = 0;
+    }
+    //Sky实例默认的数量
+    Sky.len = 0;
+    //给原型扩充方法
+    Sky.prototype = {
+        constructor: Sky,
+        //绘制背景
+        draw:function () {
+            this.ctx.drawImage(this.img,this.x,this.y);
+        },
+        updata:function () {
+            this.x -= this.speed;
+            if(this.x <= -this.width){
+                this.x += this.width*Sky.len;
+            }
+        }
+    }
+</script>
+<script type="text/javascript">
+    /**
+     * function { Bird} 绘制小鸟
+     * @param ctx 绘制环境
+     * @param img  绘制的小鸟
+     * @param frameX  一行的帧数
+     * @param frameY 一列的帧数
+     * @param x  小鸟的初始位置
+     * @param y
+     * @constructor
+     */
+    function Bird(ctx,img,frameX,frameY,x,y,speed) {
+        this.ctx = ctx;
+        this.img = img;
+        this.frameX = frameX;
+        this.frameY = frameY;
+        this.x = x;
+        this.y = y;
+        this.speed = speed || 2;
+        this.width = this.img.width/frameX;//一个小鸟的宽高
+        this.height = this.img.height/frameY;
+        this.currentFrame = 0;//当前小鸟的帧数和方向
+        this.direction = 0;
+        this.speedUp = 0.2;//小鸟的加速度
+        this._bind();
+    }
+    Bird.prototype = {
+        constructor: Bird,
+        //绘制小鸟
+        draw: function () {
+            //旋转的基础值，当小鸟的速度为1时，旋转10度
+            var baseRadian = Math.PI/180*10;
+            var radianAngle = this.speed*baseRadian;
+            //限制最大旋转45度
+            var maxRotate = Math.PI/180*45;
+            radianAngle = radianAngle >= maxRotate ? maxRotate : radianAngle;
+            //为了防止对外界的干扰，先保存在回滚
+            this.ctx.save();
+            /**
+             * 1.平移到小鸟的中心点
+             * 2.然后根据下落的速度旋转坐标系
+             * 3.绘制小鸟，但是小鸟的中心坐标为负的宽高的一半
+             */
+            this.ctx.translate(this.x+this.width/2,this.y+this.height/2);
+            this.ctx.rotate(radianAngle);
+            /*this.ctx.drawImage(this.img,this.currentFrame*this.width,this.direction*this.height,this.width,this.height,
+                this.x,this.y,this.width,this.height);*/
+            this.ctx.drawImage(this.img,this.currentFrame*this.width,this.direction*this.height,this.width,this.height,
+                -this.width/2,-this.height/2,this.width,this.height);
+            this.ctx.restore();
+        },
+        //计算下一帧的数据
+        updata:function () {
+            this.currentFrame = ++this.currentFrame >= this.frameX ? 0 : this.currentFrame;
+            this.y += this.speed;
+            this.speed += this.speedUp;
+        },
+        //构造函数内部调用一次就好了
+        _bind:function () {
+            var that = this;
+            this.ctx.canvas.addEventListener("click",function () {
+                that.speed = -4;
+
+            })
+        }
+    }
+</script>
+<!--大地-->
+<script type="text/javascript">
+    function Land(ctx,img,speed) {
+        this.ctx = ctx;
+        this.img = img;
+        this.speed = speed || 2;
+        this.width = this.img.width;
+        this.height = this.img.height;
+        Land.len++;
+        this.x = (Land.len-1)*this.width;
+        this.y = this.ctx.canvas.height-this.height;
+    }
+    Land.len = 0;
+    Land.prototype = {
+        constructor:Land,
+        draw:function () {
+            this.ctx.drawImage(this.img,this.x,this.y)
+        },
+        updata:function () {
+            this.x -= this.speed;
+            //小于的话就是拼接后面，不是小于就是加0，还是原来
+            this.x += (this.x <= -this.width) ? this.width*Land.len : 0;
+        }
+    }
+</script>
+<script type="text/javascript">
+    /**
+     * 管道特点：
+     * 1.所有x轴共享，y轴不共享
+     * 2.上下管道之间的间距是固定的，可以由用户指定
+     * 3.上管道的高度随机生成的，下管道的高度计算的
+     * 4.当管道走出画布，从右边出来的时候，高度需要重新随机生成
+     */
+    /**
+     * function { Pipe} 绘制管道
+     * @param ctx  绘制环境
+     * @param pipeDown  口朝下的管道，在画布上面
+     * @param pipeUp  口朝上的管道，在画布的下面
+     * @param space  管道之间的距离
+     * @param speed  管道移动的速度
+     * @constructor
+     */
+    function Pipe(ctx,pipeDown,pipeUp,space,landHeight,speed,minHeight) {
+        this.ctx = ctx;
+        this.pipeDown = pipeDown;
+        this.pipeUp = pipeUp;
+        this.space = space;
+        this.landHeight = landHeight;//大地的高度
+        this.speed = speed;
+        this.minHeight = minHeight || 50;
+
+        Pipe.len++;
+        //管道默认宽高
+        this.width = this.pipeDown.width;
+        this.height = this.pipeDown.height;
+        this.x = 300 + (Pipe.len - 1)*this.width*3;
+        this.y = 0;
+        this._init();
+    }
+    Pipe.len = 0;
+    extend(Pipe.prototype,{
+        //初始化管道的坐标
+        _init: function () {
+            //减50，为了确保最小高度是50
+            var maxHeight = this.ctx.canvas.height - this.landHeight - this.space - this.minHeight;
+            var randomHeight = Math.random()*maxHeight;
+            // 随机生成管道的高度
+            randomHeight = (randomHeight < 50) ? 50 : randomHeight;
+            //上管道y轴的坐标，生成管道的高度-管道的高度
+            this.downY = randomHeight - this.height;
+            //下管道的y轴坐标 随机生成的高度 + 空间距离
+            this.upY = randomHeight + this.space;
+        },
+        draw:function () {
+            this.ctx.drawImage(this.pipeDown,this.x,this.downY);
+            this.ctx.drawImage(this.pipeUp,this.x,this.upY);
+            this._drawPath();
+        },
+        //根据管道的宽高绘制对应的路劲
+        _drawPath:function () {
+            this.ctx.rect(this.x,this.downY,this.width,this.height);
+            this.ctx.rect(this.x,this.upY,this.width,this.height);
+            this.ctx.stroke();
+        },
+        updata:function () {
+            this.x -= this.speed;
+            if(this.x < -this.width){
+                this._init();
+                this.x += this.width*3*Pipe.len
+            }
+        }
+    })
+</script>
+<script type="text/javascript">
+    var cvs = document.getElementById("cvs");
+    var ctx = cvs.getContext("2d");
+    loadImage({
+        "bird":"./img/bird.png",
+        "land":"./img/land.png",
+        "pipeDown":"./img/pipeDown.png",
+        "pipeUp":"./img/pipeUp.png",
+        "sky":"./img/sky.png"
+    },function (imgObj) {
+        //根据背景的大小设置画布的大小
+        cvs.width = imgObj.sky.width;
+        cvs.height = imgObj.sky.height;
+        //创建背景
+        var sky1 = new Sky(ctx,imgObj.sky,2);
+        var sky2 = new Sky(ctx,imgObj.sky,2);
+        //创建小鸟
+        var bird = new Bird(ctx,imgObj.bird,3,1,10,10);
+        //创建大地
+        var land1 = new Land(ctx,imgObj.land,2);
+        var land2 = new Land(ctx,imgObj.land,2);
+        var land3 = new Land(ctx,imgObj.land,2);
+        var land4 = new Land(ctx,imgObj.land,2);
+        //创建管道
+        var pipe1 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        var pipe2 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        var pipe3 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        var pipe4 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        var pipe5 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        var pipe6 = new Pipe(ctx,imgObj.pipeDown,imgObj.pipeUp,150,imgObj.land.height,2);
+        //设置定时器，让背景动起来
+        var timer = setInterval(function () {
+            /**
+             * 每次绘制新的游戏画面时，
+             * 先判断小鸟有没有碰撞，
+             * 如果碰撞暂停定时器
+             */
+                //判断小鸟的中心
+            var birdCenterX = bird.x+bird.width/2;
+            var birdCenterY = bird.y+bird.height/2;
+            if(ctx.isPointInPath(birdCenterX,birdCenterY) || (birdCenterY < 0) || birdCenterY >( this.ctx.canvas.height - imgObj.land.height)){
+                //清除定时器
+                clearInterval(timer);
+                ctx.fillStyle = "rgba(300,300,300,0.5)";
+                ctx.fillRect(0,0,this.ctx.canvas.width,this.ctx.canvas.height);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.font = "50px 微软雅黑";
+                ctx.fillStyle  = "red";
+                ctx.fillText("GAME OVER!",this.ctx.canvas.width/2,this.ctx.canvas.height/2);
+                return;
+            }
+            sky1.draw();
+            sky1.updata();
+            sky2.draw();
+            sky2.updata();
+            //绘制之前先清楚路劲
+            ctx.beginPath();
+            //管道
+            pipe1.draw();
+            pipe1.updata();
+            pipe2.draw();
+            pipe2.updata();
+            pipe3.draw();
+            pipe3.updata();
+            pipe4.draw();
+            pipe4.updata();
+            pipe5.draw();
+            pipe5.updata();
+            pipe6.draw();
+            pipe6.updata();
+            //大地
+            land1.draw();
+            land1.updata();
+            land2.draw();
+            land2.updata();
+            land3.draw();
+            land3.updata();
+            land4.draw();
+            land4.updata();
+
+            //小鸟
+            bird.draw();
+            bird.updata();
+        },30);
+    })
+</script>
